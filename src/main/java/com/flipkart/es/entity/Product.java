@@ -1,7 +1,5 @@
 package com.flipkart.es.entity;
 
-import java.time.LocalDateTime;
-
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -19,15 +17,17 @@ import lombok.Setter;
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
-public class RefreshToken {
-    @Id
-    @GeneratedValue(strategy =GenerationType.IDENTITY)
-	private long tokenId;
-	private String token;
-	private boolean isBlocked;
-	private LocalDateTime refreshTokenExpiration;
+public class Product {
+	@Id
+	@GeneratedValue(strategy = GenerationType.IDENTITY)
+	private int productId;
+	private String productName;
+	private String productDescription;
+	private int productPrice;
+	private int productQuantity;
 	
-
 	@ManyToOne
-	private User user;
+	private Store store;/*a store has many products but we need put reference variable of store in product 
+	                      because more table will be created based on every product*/
+
 }

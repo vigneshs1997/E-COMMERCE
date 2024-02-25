@@ -7,9 +7,9 @@ import org.springframework.context.annotation.Configuration;
 
 import com.flipkart.es.entity.User;
 
-@Configuration//it takes bean object
+@Configuration//
 public class CacheBeanConfig {
-    @Bean
+    @Bean//It creates the object and return that object
 	public CacheStrore<User> userCacheStrore(){
 		return new CacheStrore<User>(Duration.ofMinutes(5));
 		

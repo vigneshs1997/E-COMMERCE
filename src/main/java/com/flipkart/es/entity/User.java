@@ -22,8 +22,8 @@ import lombok.ToString;
 @Entity
 @Getter
 @Setter
-@Table(name = "users")
-@Inheritance(strategy = InheritanceType.JOINED)
+@Table(name = "users")//table is created based on this name
+@Inheritance(strategy = InheritanceType.JOINED)//what ever changes in parent, it effects in child class also=>here only we are giving every credentials 
 @Builder
 @AllArgsConstructor
 @NoArgsConstructor
@@ -34,7 +34,7 @@ public class User {
     private String username;
     private String userEmail;
     private String userPassword;
-    @Enumerated(EnumType.STRING)
+    @Enumerated(EnumType.STRING)//it will provide 0,1,2 in database if we do not mention STRING
     private UserRole userRole;
     private boolean isEmailVerified;
     private boolean isDeleted;

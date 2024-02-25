@@ -10,7 +10,7 @@ import com.flipkart.es.entity.User;
 import com.flipkart.es.repository.UserRepository;
 import lombok.AllArgsConstructor;
 
-@Component
+@Component// for creating bean object of that class
 @AllArgsConstructor
 public class ScheduledJobs {
 

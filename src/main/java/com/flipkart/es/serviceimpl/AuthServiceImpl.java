@@ -2,6 +2,7 @@ package com.flipkart.es.serviceimpl;
 
 import java.time.LocalDateTime;
 import java.util.Date;
+import java.util.List;
 import java.util.Random;
 
 import org.springframework.beans.factory.annotation.Value;
@@ -13,6 +14,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -25,6 +27,9 @@ import com.flipkart.es.entity.Seller;
 import com.flipkart.es.entity.User;
 import com.flipkart.es.enums.UserRole;
 import com.flipkart.es.exception.InvalidUserRoleException;
+import com.flipkart.es.exception.TokenExpiredLoginAgainException;
+import com.flipkart.es.exception.UserNotFoundException;
+import com.flipkart.es.exception.UserNotLoggedInException;
 import com.flipkart.es.exception.UserVerifiedException;
 import com.flipkart.es.repository.AccessTokenRepo;
 import com.flipkart.es.repository.CustomerRepository;
@@ -42,19 +47,21 @@ import com.flipkart.es.util.CookieManager;
 import com.flipkart.es.util.MessageStructure;
 import com.flipkart.es.util.ResponseEntityProxy;
 import com.flipkart.es.util.ResponseStructure;
+import com.flipkart.es.util.SimpleResponseStructure;
 
 import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import jakarta.servlet.http.Cookie;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-@Slf4j //=>
+@Slf4j //=> instead of using print statement(system.out.println)
 @Service
-//@AllArgsConstructor//lombok annotation
+//@AllArgsConstructor=>from lombok annotation -> It is used instead of @Autowire
 public class AuthServiceImpl implements AuthService {
-    //private methods should be created on top because they can not be accessed if they are placed at bottom
-	
+	//private methods should be created on top because they can not be accessed if they are placed at bottom
+
 	private UserRepository userRepository;
 	private SellerRepository sellerRepository;
 	private CustomerRepository customerRepository;
@@ -69,23 +76,35 @@ public class AuthServiceImpl implements AuthService {
 	private JwtService jwtService; 
 	private AccessTokenRepo accessTokenRepo;
 	private RefreshTokenRepo refreshTokenRepo;
-	
-	@Value("${myapp.access.expiry}")
+	private ResponseStructure<String> servletStruture;
+    private SimpleResponseStructure simpleResponseStructure;
+    
+
+
+	@Value("${myapp.access.expiry}")//it will take data from properties file
 	private int accessExpiryInSeconds; //object can not be created for primitive type 
-	@Value("${myapp.refresh.expiry}")
-	private int refreshExpiryInSeconds;
-	
-
-	
+	@Value("${myapp.refresh.expiry}")//it will take data from properties file
+	private int refreshExpiryInSeconds;//object can not be created for primitive type 
 
 
 
-	public AuthServiceImpl(UserRepository userRepository, SellerRepository sellerRepository,
-			CustomerRepository customerRepository, PasswordEncoder passwordEncoder,
-			ResponseStructure<UserResponse> structure, ResponseStructure<AuthResponse> authStructure,
-			CacheStrore<String> otpCacheStore, CacheStrore<User> userCacheStore, JavaMailSender javaMailSender,
-			AuthenticationManager authenticationManager, CookieManager cookieManager, JwtService jwtService,
-			AccessTokenRepo accessTokenRepo, RefreshTokenRepo refreshTokenRepo) {
+
+
+	//=> here we do manually instead of using @AllArgsConstructor because accessExpiryInSeconds and refreshExpiryInSeconds are not needed
+	public AuthServiceImpl(UserRepository userRepository, 
+			SellerRepository sellerRepository,
+			CustomerRepository customerRepository, 
+			PasswordEncoder passwordEncoder,
+			ResponseStructure<UserResponse> structure,
+			ResponseStructure<AuthResponse> authStructure,
+			CacheStrore<String> otpCacheStore,
+			CacheStrore<User> userCacheStore,
+			JavaMailSender javaMailSender,
+			AuthenticationManager authenticationManager,
+			CookieManager cookieManager,
+			JwtService jwtService,
+			AccessTokenRepo accessTokenRepo,
+			RefreshTokenRepo refreshTokenRepo,ResponseStructure<String> servletStruture) {
 		super();
 		this.userRepository = userRepository;
 		this.sellerRepository = sellerRepository;
@@ -101,6 +120,7 @@ public class AuthServiceImpl implements AuthService {
 		this.jwtService = jwtService;
 		this.accessTokenRepo = accessTokenRepo;
 		this.refreshTokenRepo = refreshTokenRepo;
+		this.servletStruture=servletStruture;
 	}
 
 
@@ -110,13 +130,13 @@ public class AuthServiceImpl implements AuthService {
 
 		User user = null;
 		switch (UserRole.valueOf(userRequest.getUserRole().toUpperCase())) {
-			case SELLER -> {
-				user = new Seller();
-			}
-			case CUSTOMER -> {
-				user = new Customer();
-			}
-			default -> throw new InvalidUserRoleException("User not found with the specified role");
+		case SELLER -> {
+			user = new Seller();
+		}
+		case CUSTOMER -> {
+			user = new Customer();
+		}
+		default -> throw new InvalidUserRoleException("User not found with the specified role");
 		}
 
 		user.setUsername(userRequest.getUserEmail().split("@")[0].toString());
@@ -135,7 +155,7 @@ public class AuthServiceImpl implements AuthService {
 	public User saveUser(User user) {
 
 		if (user.getUserRole().equals(UserRole.SELLER)) {
-			Seller seller = (Seller) user;
+			Seller seller = (Seller) user; //downcasting where super class object  is stored into subclass reference
 			return sellerRepository.save(seller);
 		} else {
 			Customer customer = (Customer) user;
@@ -146,58 +166,56 @@ public class AuthServiceImpl implements AuthService {
 	@Override
 	public ResponseEntity<ResponseStructure<UserResponse>> registerUser(UserRequest userRequest) {
 
-	
-		
 		if(userRepository.existsByUserEmail(userRequest.getUserEmail())) 
 			throw new UserVerifiedException("User is already present with the given email Id ");
-		
-	    String OTP = generateOTP();
+
+		String OTP = generateOTP();
 		User user = mapToRespectiveChild(userRequest);
 		userCacheStore.add(userRequest.getUserEmail(),user);
 		otpCacheStore.add(userRequest.getUserEmail(),OTP);
-		
+
 		try {
 			sendOtpToMail(user,OTP);
 		} catch (MessagingException e) {
-			
+
 			log.error("The email address does not exist");;
 		}
-		
+
 		return new ResponseEntity<ResponseStructure<UserResponse>>(structure.setStatus(HttpStatus.ACCEPTED.value())
 				.setMessage("Please verify through OTP :"+OTP)
 				.setData(mapToUserResponse(user)),HttpStatus.ACCEPTED);
 	}
-	
+
 	@Override
 	public ResponseEntity<String> verifyOTP(OtpModel otpModel){
 		User user= userCacheStore.get(otpModel.getEmail());
 		String otp=otpCacheStore.get(otpModel.getEmail());
-		
+
 		if(otp == null) throw new RuntimeException("OTP expired");
 		if(user == null) throw new RuntimeException("Registeration session expired");
 		if(!otp.equals(otpModel.getOtp())) throw new RuntimeException("Invalid OTP");
-		
+
 		user.setEmailVerified(true);
 		userRepository.save(user);
 		return new ResponseEntity<String>("Registration successfull",HttpStatus.CREATED) ;
-		
-		
+
+
 	}
-	
+
 	private void sendOtpToMail(User user,String otp) throws MessagingException {
-		sendMail(MessageStructure.builder()
-		.to(user.getUserEmail())
-		.subject("Complete your Registration To Flipkart")
-		.sentDate(new Date())
-		.text(
-				"hey, "+user.getUsername()
-				+" Good to see you intrested in flipkart,"
-				+" Complete your registration using the OTP <br>"
-				+"<h1>"+otp+"</h1><br>"
-				+"Note: the OTP expires in 1 minute"
-				+"<br><br>"
-				+"with best regards<br>"
-				+"Flipkart").build());
+		sendMail(MessageStructure.builder() //builder is using to access private variable without getter and setter
+				.to(user.getUserEmail())
+				.subject("Complete your Registration To Flipkart")
+				.sentDate(new Date())
+				.text(
+						"hey, "+user.getUsername()
+						+" Good to see you intrested in flipkart,"
+						+" Complete your registration using the OTP <br>"
+						+"<h1>"+otp+"</h1><br>"
+						+"Note: the OTP expires in 1 minute"
+						+"<br><br>"
+						+"with best regards<br>"
+						+"Flipkart").build());
 	}
 	private void sendResponseMail(User user) throws MessagingException {
 		MessageStructure.builder()
@@ -222,11 +240,11 @@ public class AuthServiceImpl implements AuthService {
 		helper.setText(message.getText(), true);
 		javaMailSender.send(mimeMessage);
 	}
-	
+
 	private String generateOTP() {
 		return String.valueOf(new Random().nextInt(100000, 999999));
 	}
-	
+
 	private UserResponse mapToUserResponse(User user) {
 
 		return UserResponse.builder()
@@ -241,19 +259,19 @@ public class AuthServiceImpl implements AuthService {
 	}
 
 
-
-	@Override
+/*==============================================================login==================================================================================*/
+	@Override //decoded in note book
 	public ResponseEntity<ResponseStructure<AuthResponse>> login(AuthRequest authRequest,HttpServletResponse response) {
-		String username =authRequest.getEmail().split("@")[0];
+		String username =authRequest.getEmail().split("@")[0];//constructor chaining
 		UsernamePasswordAuthenticationToken token = new UsernamePasswordAuthenticationToken(username, authRequest.getPassword());
-		
+
 		Authentication authentication =authenticationManager.authenticate(token);
 		if(!authentication.isAuthenticated()) throw new UsernameNotFoundException("Failed to authenticate the user");
 		else 
 			return userRepository.findByUsername(username).map(user->{
-				
+
 				grantAccess(response, user);
-				
+				//generating the cookies and authResponse and returning to the client.
 				return ResponseEntity.ok(authStructure.setStatus(HttpStatus.OK.value())
 						.setData(AuthResponse.builder()
 								.userId(user.getUserId())
@@ -264,37 +282,139 @@ public class AuthServiceImpl implements AuthService {
 								.refreshExpiration(LocalDateTime.now().plusSeconds(refreshExpiryInSeconds))
 								.build())
 						.setMessage(""));
-			}).get();
-			//generating the cookies and authResponse and returning to the client.
-		
+			}).get(); //get()=> it gives exact that data or if we do not use, optional data
+
+//get() is present in optional class
 	}
-//===========================================================================================================================================
+/*=====================================================grantAccess based on token generation===========================================================*/
 	private void grantAccess(HttpServletResponse response,User user) {
 		//generating access and refresh tokens
 		String accessToken=jwtService.generateAccessToken(user.getUsername());
 		String refreshToken=jwtService.generateRefreshToken(user.getUsername());
 		//adding access and refresh tokens cookie to the response
-		response.addCookie(cookieManager.configure(new Cookie("at",accessToken), accessExpiryInSeconds));
-		response.addCookie(cookieManager.configure(new Cookie("rt",refreshToken), refreshExpiryInSeconds));
-		
+		response.addCookie(cookieManager.configure(new Cookie("at",accessToken), accessExpiryInSeconds)); //at-access token 
+		response.addCookie(cookieManager.configure(new Cookie("rt",refreshToken), refreshExpiryInSeconds));//refresh token
+
 		//saving the access and refresh cookie in to the database
 		accessTokenRepo.save(AccessToken.builder()
 				.token(accessToken)
-				.expiration(LocalDateTime.now()
-				.plusSeconds(accessExpiryInSeconds)).build());
-		
+				.accessTokenExpiration(LocalDateTime.now()
+						.plusSeconds(accessExpiryInSeconds)).build());
+
 		refreshTokenRepo.save(RefreshToken.builder()
 				.token(refreshToken)
-				.expiration(LocalDateTime.now()
-				.plusSeconds(refreshExpiryInSeconds)).build());
-		
+				.refreshTokenExpiration(LocalDateTime.now()
+						.plusSeconds(refreshExpiryInSeconds)).build());
+
+	}
+
+
+/*============================================================token deleted after logout===============================================================*/
+	@Override
+	public ResponseEntity<ResponseStructure<String>> logout(String at, String rt, HttpServletResponse response) {
+
+		if(at==null && rt==null)throw new UserNotLoggedInException("User Not LoggedIn!!!!");
+		accessTokenRepo.findByToken(at).ifPresent(accessToken->{
+
+			accessToken.setBlocked(true);
+			accessTokenRepo.save(accessToken);
+		});
+
+		refreshTokenRepo.findByToken(rt).ifPresent(refreshToken->{
+			refreshToken.setBlocked(true);
+			refreshTokenRepo.save(refreshToken);
+		});
+
+		response.addCookie(cookieManager.invalidate(new Cookie("at", "")));
+		response.addCookie(cookieManager.invalidate(new Cookie("rt", "")));
+
+		servletStruture.setStatus(HttpStatus.ACCEPTED.value());
+		servletStruture.setMessage("User Successfully Logged Out");
+		servletStruture.setData("LogIn for access");
+		return new ResponseEntity<ResponseStructure<String>>(servletStruture,HttpStatus.ACCEPTED);
+	}
+/*=================================================================revokeAllDevice======================================================================*/
+	@Override
+	public ResponseEntity<ResponseStructure<String>> revokeAllDevice(HttpServletResponse response)
+	{                                            //who is activated currently.credentials.fetching
+		String username = SecurityContextHolder.getContext().getAuthentication().getName();
+
+		userRepository.findByUsername(username)
+		.ifPresent(user->{
+
+			List<AccessToken> accessTokens = accessTokenRepo.findAllByUserAndIsBlocked(user,false);
+			blockAccessTokens(accessTokens);
+			List<RefreshToken> refreshTokens = refreshTokenRepo.findAllByUserAndIsBlocked(user,false);
+			blockRefreshTokens(refreshTokens);
+
+		});
+
+		response.addCookie(cookieManager.invalidate(new Cookie("at", "")));
+		response.addCookie(cookieManager.invalidate(new Cookie("rt", "")));
+
+		return ResponseEntityProxy.setResponseStructure(HttpStatus.OK,"revoke all device successfully done", null);
+	}
+/*==================================================================revokeOtherDevice=================================================================*/
+	@Override
+	public ResponseEntity<ResponseStructure<String>> revokeOtherDevice(String refreshToken, String accessToken,
+			HttpServletResponse response)
+	{
+		String username = SecurityContextHolder.getContext().getAuthentication().getName();
+
+
+		userRepository.findByUsername(username)
+		.ifPresent(user->{
+			List<AccessToken> accessTokens = accessTokenRepo.findAllByUserAndIsBlockedAndTokenNot(user,false,accessToken);
+			blockAccessTokens(accessTokens);
+			List<RefreshToken> refreshTokens = refreshTokenRepo.findAllByUserAndIsBlockedAndTokenNot(user,false,refreshToken);
+			blockRefreshTokens(refreshTokens);
+		});
+
+
+		return ResponseEntityProxy.setResponseStructure(HttpStatus.OK,"revoke other device successfully done", null);
+	}
+/*==================================================================refreshLogin======================================================================*/
+	@Override
+	public ResponseEntity<SimpleResponseStructure> refreshLogin(String accessToken, String refreshToken,
+			HttpServletResponse response) {
+		if(accessToken != null) {
+			accessTokenRepo.findByToken(accessToken).map(at->{
+				at.setBlocked(true);
+				return accessTokenRepo.save(at);	
+			});
+			
+		}
+        if(refreshToken == null) throw new UserNotLoggedInException("user logged out");
+		String username = SecurityContextHolder.getContext().getAuthentication().getName();
+		if(username.equals("anonymousUser")) throw new UsernameNotFoundException("username not found");
+		return userRepository.findByUsername(username).map(user->{
+			grantAccess(response, user);
+			refreshTokenRepo.findByToken(refreshToken).map(rt->{
+				rt.setBlocked(true);
+				return refreshTokenRepo.save(rt);
+			}).orElseThrow(()->new UserNotFoundException("user not found"));
+			return ResponseEntityProxy.setSimpleResponseStructure(HttpStatus.OK,"token successfully generated");
+		}).orElseThrow(()->new UsernameNotFoundException("user name not found"));
+	}
+/*=============================================================Methods to call block tokens============================================================*/
+	private void blockAccessTokens(List<AccessToken> accessToken) {
+		accessToken.forEach(at->{
+			at.setBlocked(true);
+			accessTokenRepo.save(at);
+		});
+	}
+	private void blockRefreshTokens(List<RefreshToken> refreshToken) {
+		refreshToken.forEach(rt->{
+			rt.setBlocked(true);
+			refreshTokenRepo.save(rt);
+		});
 	}
 
 
 
+	
 
 
 
-
-
+	
 }
