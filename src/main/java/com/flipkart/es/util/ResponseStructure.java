@@ -9,9 +9,9 @@ import lombok.Setter;
 @Component // for creating bean object
 public class ResponseStructure<T> {
 	
-	private int status;
-	private String message;
-	private T data;
+	private int status; //it will give status code
+	private String message; //it will give message
+	private T data; //
 	public int getStatus() {
 		return status;
 	}
@@ -33,6 +33,7 @@ public class ResponseStructure<T> {
 		this.data = data;
 		return this;
 	}
+	
 	
 	
   
