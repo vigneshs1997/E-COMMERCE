@@ -20,7 +20,7 @@ import lombok.Setter;
 @Table(name="stores")//create table based on this name
 @AllArgsConstructor//constructors accepts arguments
 @NoArgsConstructor
-public class Store {
+public class Store{
 	@Id
 	@GeneratedValue(strategy = GenerationType.IDENTITY)//id value taken automatically
 	private int storeId;
@@ -28,8 +28,8 @@ public class Store {
 	private String logoLink;
 	private String about;
 	
-	@OneToOne
-	private Address address; //Store has a address
+	@OneToOne//(one store has one address)
+	private Address address; //Store has one address
 	
 	
 }

@@ -36,6 +36,6 @@ public class User {
     private String userPassword;
     @Enumerated(EnumType.STRING)//it will provide 0,1,2 in database if we do not mention STRING
     private UserRole userRole;
-    private boolean isEmailVerified;
-    private boolean isDeleted;
+    private boolean isEmailVerified=false;
+    private boolean isDeleted=false;
 }
